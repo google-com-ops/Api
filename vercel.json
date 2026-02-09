@@ -3,11 +3,15 @@
   "builds": [
     {
       "src": "api/index.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "public/**/*",
-      "use": "@vercel/static"
+      "use": "@vercel/node",
+      "config": {
+        "maxLambdaSize": "15mb",
+        "includeFiles": [
+          "lib/**",
+          "assets/**",
+          "public/**"
+        ]
+      }
     }
   ],
   "routes": [
@@ -17,13 +21,30 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/public/$1"
+      "dest": "/public/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=3600"
+      }
     }
   ],
   "env": {
     "NODE_ENV": "production",
-    "MAX_CONCURRENT_ATTACKS": "5",
+    "MAX_CONCURRENT_ATTACKS": "3",
     "RATE_LIMIT_WINDOW_MS": "300000",
-    "RATE_LIMIT_MAX_REQUESTS": "10"
+    "RATE_LIMIT_MAX_REQUESTS": "10",
+    "NODE_VERSION": "24.x"
+  },
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "memory": 3008,
+      "runtime": "nodejs24.x"
+    }
+  },
+  "regions": ["iad1"],
+  "git": {
+    "deploymentEnabled": {
+      "main": true
+    }
   }
 }
