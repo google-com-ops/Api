@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDoS API Server</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-shield-alt"></i> DDoS API Server</h1>
+            <p class="subtitle">Advanced DDoS Protection Testing Tool</p>
+        </header>
+
+        <div class="dashboard">
+            <div class="stats-card">
+                <h3><i class="fas fa-chart-line"></i> Server Status</h3>
+                <div id="serverStats">
+                    <p>Loading...</p>
+                </div>
+                <button onclick="refreshStats()" class="btn-refresh">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+
+            <div class="stats-card">
+                <h3><i class="fas fa-bolt"></i> Active Attacks</h3>
+                <div id="attackStats">
+                    <p>Loading...</p>
+                </div>
+                <button onclick="loadMethods()" class="btn-methods">
+                    <i class="fas fa-list"></i> View Methods
+                </button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="attack-form">
+                <h2><i class="fas fa-crosshairs"></i> Launch Attack</h2>
+                
+                <div class="form-group">
+                    <label for="method">Attack Method:</label>
+                    <select id="method" onchange="updateForm()">
+                        <option value="flood">Flood</option>
+                        <option value="flood1">Flood 1</option>
+                        <option value="h2god">HTTP/2 God</option>
+                        <option value="h2hold">HTTP/2 Hold</option>
+                        <option value="glory">Glory</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="target">Target URL:</label>
+                    <input type="text" id="target" placeholder="https://example.com" required>
+                </div>
+
+                <div class="form-group" id="durationGroup">
+                    <label for="duration">Duration (seconds):</label>
+                    <input type="number" id="duration" value="60" min="10" max="300">
+                </div>
+
+                <div class="form-group" id="timeGroup" style="display: none;">
+                    <label for="time">Time (seconds):</label>
+                    <input type="number" id="time" value="60" min="10" max="300">
+                </div>
+
+                <div class="form-group" id="rateGroup" style="display: none;">
+                    <label for="rate">Rate (RPS):</label>
+                    <input type="number" id="rate" value="100" min="10" max="1000">
+                </div>
+
+                <div class="form-group" id="threadsGroup" style="display: none;">
+                    <label for="threads">Threads:</label>
+                    <input type="number" id="threads" value="10" min="1" max="50">
+                </div>
+
+                <button onclick="launchAttack()" class="btn-attack">
+                    <i class="fas fa-play"></i> Launch Attack
+                </button>
+
+                <div id="result" class="result"></div>
+            </div>
+
+            <div class="methods-list">
+                <h2><i class="fas fa-code"></i> Available Methods</h2>
+                <div id="methodsList">
+                    <p>Loading methods...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="active-attacks">
+            <h2><i class="fas fa-fire"></i> Active Attacks</h2>
+            <div id="activeAttacksList">
+                <p>No active attacks</p>
+            </div>
+        </div>
+
+        <footer>
+            <p>DDoS API Server v1.0 | For educational purposes only</p>
+            <p class="warning">
+                <i class="fas fa-exclamation-triangle"></i> 
+                Warning: Use responsibly and only on systems you own or have permission to test.
+            </p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+  </html>
